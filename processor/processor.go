@@ -15,7 +15,7 @@ type Processor struct {
 	taskNum int64
 }
 
-func NewStreamProcessor(concurrency int32) *Processor {
+func NewProcessor(concurrency int32) *Processor {
 	p := &Processor{concurrency:concurrency}
 	p.initOnce.Do(p.init)
 	return p

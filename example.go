@@ -23,7 +23,7 @@ func (task *taskTest)String() string {
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
-	processor := processor.NewStreamProcessor(3)
+	processor := processor.NewProcessor(3)
 
 	for i := 0; i < 30; i++ {
 		task := new(taskTest)
