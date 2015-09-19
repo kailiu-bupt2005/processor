@@ -34,11 +34,7 @@ func (p *Processor)init() {
 
 func (p *Processor)FinishAdd() {
 	p.thatAll = true
-	if atomic.LoadInt64(&p.taskNum) == 0 {
-		close(p.inChan)
-		close(p.finishChan)
-		return
-	}
+	close(p.inChan)
 	<- p.finishChan
 }
 
@@ -57,15 +53,11 @@ func (p *Processor)work(pid int) {
 	var ok bool
 	for {
 		if task, ok = <-p.inChan; !ok {
-			return
-		}
-		task.Handle(pid)
-		atomic.AddInt64(&p.taskNum, -1)
-		if atomic.LoadInt64(&p.taskNum) <= 0 && p.thatAll  {
-			close(p.inChan)
 			p.finishOnce.Do(func() {
 				p.finishChan <- 1
 			})
+			return
 		}
+		task.Handle(pid)
 	}
 }
