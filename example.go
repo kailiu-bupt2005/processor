@@ -2,28 +2,52 @@ package main
 import (
 	"code.google.com/p/go/src/pkg/fmt"
 	"huzznn/processor"
-"runtime"
-	"code.google.com/p/go/src/pkg/encoding/json"
+	"runtime"
+//	"encoding/json"
+	"code.google.com/p/go/src/pkg/errors"
 )
 
 type taskTest struct {
+	ID int
 	Content string
 	Weight int
 	Point float64
 }
 
-func (task *taskTest)Handle(pid int)  {
-	js, _ := json.Marshal(task)
-	fmt.Printf("[%v] %v\r\n", pid, string(js))
+func (task *taskTest)Handle(pid int, result chan<- interface{})  {
+	task.ID = pid
+	result <- task
+//	js, _ := json.Marshal(task)
+//	fmt.Printf("[%v] %v\r\n", pid, string(js))
 }
 
 func (task *taskTest)String() string {
 	return fmt.Sprintf("c:%v w:%v p:%v", task.Content, task.Weight, task.Point)
 }
 
+type collecotTest struct {}
+
+func (c *collecotTest)Handle(result <-chan interface{}) error {
+	for {
+		var ret interface{}
+		var ok bool = true
+		var task *taskTest = nil
+		if ret, ok = <- result; !ok {
+			fmt.Println("result chan close, so return")
+			return nil
+		}
+
+		if task, ok = ret.(*taskTest); !ok {
+			return errors.New("result chan input is not *taskTest");
+		}
+
+		fmt.Printf("task %v return\r\n", task.ID)
+	}
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
-	processor := processor.NewProcessor(3)
+	processor := processor.NewProcessor(3, &collecotTest{})
 
 	for i := 0; i < 30; i++ {
 		task := new(taskTest)
@@ -34,5 +58,5 @@ func main() {
 	}
 	processor.FinishAdd()
 
-	fmt.Println("task finish.\r\n")
+	fmt.Printf("task finish, error is %v.\r\n", processor.GetError())
 }

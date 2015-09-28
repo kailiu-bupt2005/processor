@@ -2,6 +2,7 @@ package processor
 import (
 	"sync"
 	"sync/atomic"
+	"code.google.com/p/go/src/pkg/fmt"
 )
 
 
@@ -13,10 +14,14 @@ type Processor struct {
 	initOnce sync.Once
 	finishOnce sync.Once
 	taskNum int64
+	taskDoneNum int64
+	resultCollector Collector
+	resultChan chan interface{}
+	resultError error
 }
 
-func NewProcessor(concurrency int32) *Processor {
-	p := &Processor{concurrency:concurrency}
+func NewProcessor(concurrency int32, resultCollector Collector) *Processor {
+	p := &Processor{concurrency:concurrency, resultCollector: resultCollector}
 	p.initOnce.Do(p.init)
 	return p
 }
@@ -27,6 +32,12 @@ func (p *Processor)init() {
 	}
 	p.inChan = make(chan Task, p.concurrency)
 	p.finishChan = make(chan int32)
+	p.resultChan = make(chan interface{})
+
+	if p.resultCollector != nil {
+		go p.collet()
+	}
+
 	for i := 0; i < int(p.concurrency); i++ {
 		go p.work(i + 1)
 	}
@@ -36,28 +47,50 @@ func (p *Processor)FinishAdd() {
 	p.thatAll = true
 	close(p.inChan)
 	<- p.finishChan
+	fmt.Printf("task add %v, done %v\r\n", p.taskNum, p.taskDoneNum)
 }
 
 func (p *Processor)AddTask(task Task) {
 	p.initOnce.Do(p.init)
 	if p.thatAll {
-		panic("User told me it's finshed, Why add task again.")
+		panic("User told me it's finished, Why add task again.")
 	}
 	atomic.AddInt64(&p.taskNum, 1)
 	p.inChan <- task
 }
 
+func (p *Processor)collet() {
+	err := p.resultCollector.Handle(p.resultChan)
+	if err != nil {
+		p.resultError = err
+	}
+	for {
+		if _, ok := <- p.resultChan; !ok {
+			break;
+		}
+	}
+}
+
+func (p *Processor)GetError() error {
+	return p.resultError
+}
 
 func (p *Processor)work(pid int) {
 	var task Task
 	var ok bool
 	for {
 		if task, ok = <-p.inChan; !ok {
-			p.finishOnce.Do(func() {
-				p.finishChan <- 1
-			})
+			if atomic.LoadInt64(&p.taskDoneNum) == atomic.LoadInt64(&p.taskNum) {
+				p.finishOnce.Do(func() {
+					if p.resultChan != nil {
+						close(p.resultChan)
+					}
+					p.finishChan <- 1
+				})
+			}
 			return
 		}
-		task.Handle(pid)
+		task.Handle(pid, p.resultChan)
+		atomic.AddInt64(&p.taskDoneNum, 1)
 	}
 }
