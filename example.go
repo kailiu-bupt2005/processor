@@ -1,10 +1,11 @@
 package main
 import (
-	"code.google.com/p/go/src/pkg/fmt"
-	"huzznn/processor"
+	"fmt"
+	p "huzznn/processor"
 	"runtime"
 //	"encoding/json"
-	"code.google.com/p/go/src/pkg/errors"
+	"errors"
+	"encoding/json"
 )
 
 type taskTest struct {
@@ -16,9 +17,12 @@ type taskTest struct {
 
 func (task *taskTest)Handle(pid int, result chan<- interface{})  {
 	task.ID = pid
-	result <- task
-//	js, _ := json.Marshal(task)
-//	fmt.Printf("[%v] %v\r\n", pid, string(js))
+	if result != nil {
+		result <- task
+	} else {
+		js, _ := json.Marshal(task)
+		fmt.Printf("[%v] %v\r\n", pid, string(js))
+	}
 }
 
 func (task *taskTest)String() string {
@@ -47,7 +51,20 @@ func (c *collecotTest)Handle(result <-chan interface{}) error {
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
-	processor := processor.NewProcessor(3, &collecotTest{})
+	//有收集器
+//	processor := p.NewProcessor(3, &collecotTest{})
+//
+//	for i := 0; i < 30; i++ {
+//		task := new(taskTest)
+//		task.Content = fmt.Sprintf("task %v", i + 1)
+//		task.Weight = i + 1;
+//		task.Point = float64(i) * 0.1
+//		processor.AddTask(task)
+//	}
+//	processor.FinishAdd()
+
+	//没有收集器
+	processor := p.NewProcessor(3, nil)
 
 	for i := 0; i < 30; i++ {
 		task := new(taskTest)

@@ -2,12 +2,12 @@ package processor
 import (
 	"sync"
 	"sync/atomic"
-	"code.google.com/p/go/src/pkg/fmt"
+	"fmt"
 )
 
 
 type Processor struct {
-	concurrency int32
+	concurrency int
 	inChan chan Task
 	finishChan chan int32
 	thatAll bool
@@ -20,7 +20,7 @@ type Processor struct {
 	resultError error
 }
 
-func NewProcessor(concurrency int32, resultCollector Collector) *Processor {
+func NewProcessor(concurrency int, resultCollector Collector) *Processor {
 	p := &Processor{concurrency:concurrency, resultCollector: resultCollector}
 	p.initOnce.Do(p.init)
 	return p
@@ -32,9 +32,9 @@ func (p *Processor)init() {
 	}
 	p.inChan = make(chan Task, p.concurrency)
 	p.finishChan = make(chan int32)
-	p.resultChan = make(chan interface{})
 
 	if p.resultCollector != nil {
+		p.resultChan = make(chan interface{})
 		go p.collet()
 	}
 
@@ -64,11 +64,9 @@ func (p *Processor)collet() {
 	if err != nil {
 		p.resultError = err
 	}
-	for {
-		if _, ok := <- p.resultChan; !ok {
-			break;
-		}
+	for range p.resultChan {
 	}
+	p.finishChan <- 1
 }
 
 func (p *Processor)GetError() error {
@@ -76,21 +74,18 @@ func (p *Processor)GetError() error {
 }
 
 func (p *Processor)work(pid int) {
-	var task Task
-	var ok bool
-	for {
-		if task, ok = <-p.inChan; !ok {
-			if atomic.LoadInt64(&p.taskDoneNum) == atomic.LoadInt64(&p.taskNum) {
-				p.finishOnce.Do(func() {
-					if p.resultChan != nil {
-						close(p.resultChan)
-					}
-					p.finishChan <- 1
-				})
-			}
-			return
-		}
+	for task := range p.inChan{
 		task.Handle(pid, p.resultChan)
 		atomic.AddInt64(&p.taskDoneNum, 1)
+	}
+
+	if atomic.LoadInt64(&p.taskDoneNum) == atomic.LoadInt64(&p.taskNum) {
+		p.finishOnce.Do(func() {
+			if p.resultChan != nil {
+				close(p.resultChan)
+			} else {
+				p.finishChan <- 1
+			}
+		})
 	}
 }
