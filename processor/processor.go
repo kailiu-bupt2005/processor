@@ -2,22 +2,20 @@ package processor
 import (
 	"sync"
 	"sync/atomic"
-	"fmt"
 )
 
 
 type Processor struct {
 	concurrency int
 	inChan chan Task
-	finishChan chan int32
-	thatAll bool
 	initOnce sync.Once
-	finishOnce sync.Once
 	taskNum int64
 	taskDoneNum int64
 	resultCollector Collector
 	resultChan chan interface{}
 	resultError error
+	finishWait *sync.WaitGroup
+	thatAll bool
 }
 
 func NewProcessor(concurrency int, resultCollector Collector) *Processor {
@@ -27,11 +25,11 @@ func NewProcessor(concurrency int, resultCollector Collector) *Processor {
 }
 
 func (p *Processor)init() {
+	p.finishWait = new(sync.WaitGroup)
 	if p.concurrency <= 0 {
 		p.concurrency = 100
 	}
 	p.inChan = make(chan Task, p.concurrency)
-	p.finishChan = make(chan int32)
 
 	if p.resultCollector != nil {
 		p.resultChan = make(chan interface{})
@@ -44,10 +42,9 @@ func (p *Processor)init() {
 }
 
 func (p *Processor)FinishAdd() {
-	p.thatAll = true
 	close(p.inChan)
-	<- p.finishChan
-	fmt.Printf("task add %v, done %v\r\n", p.taskNum, p.taskDoneNum)
+	p.thatAll = true
+	p.finishWait.Wait()
 }
 
 func (p *Processor)AddTask(task Task) {
@@ -56,17 +53,18 @@ func (p *Processor)AddTask(task Task) {
 		panic("User told me it's finished, Why add task again.")
 	}
 	atomic.AddInt64(&p.taskNum, 1)
+	p.finishWait.Add(1)
 	p.inChan <- task
 }
 
 func (p *Processor)collet() {
-	err := p.resultCollector.Handle(p.resultChan)
-	if err != nil {
-		p.resultError = err
+	for result := range p.resultChan {
+		err := p.resultCollector.Handle(result)
+		if err != nil {
+			p.resultError = err
+		}
+		p.finishWait.Done()
 	}
-	for range p.resultChan {
-	}
-	p.finishChan <- 1
 }
 
 func (p *Processor)GetError() error {
@@ -77,15 +75,8 @@ func (p *Processor)work(pid int) {
 	for task := range p.inChan{
 		task.Handle(pid, p.resultChan)
 		atomic.AddInt64(&p.taskDoneNum, 1)
-	}
-
-	if atomic.LoadInt64(&p.taskDoneNum) == atomic.LoadInt64(&p.taskNum) {
-		p.finishOnce.Do(func() {
-			if p.resultChan != nil {
-				close(p.resultChan)
-			} else {
-				p.finishChan <- 1
-			}
-		})
+		if p.resultCollector == nil {
+			p.finishWait.Done()
+		}
 	}
 }
